@@ -1,7 +1,7 @@
 {
   "name": "yuihub-copilot-chat",
   "displayName": "YuiHub Copilot Chat",
-  "publisher": "vemikrs",
+  "publisher": "ve",
   "version": "0.0.1",
   "description": "Minimal VS Code bridge to YuiHub (search/save/health). Shelter by default.",
   "engines": {
