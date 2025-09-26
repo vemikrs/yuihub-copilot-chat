@@ -80,3 +80,35 @@ Shelter モード前提：ユーザーが設定しない限り外部送信は行
 ## 📝 ライセンス
 
 この拡張機能は MIT ライセンスにて公開されています。詳細は [LICENSE](LICENSE) をご覧ください。
+
+---
+
+## 🧪 開発者向け: デバッグ/実行方法
+
+VSIX にせず、そのまま VS Code からデバッグできます。
+
+1) 依存関係のインストール
+
+```bash
+npm ci
+```
+
+2) F5 で起動
+- `Run Extension` 構成で Extension Development Host が立ち上がります。
+- 事前に `npm: build` タスクが走り、`dist/extension.js` が生成されます。
+- ブレークポイントは `src/extension.ts` に設定できます（ソースマップ有効）。
+
+3) ウォッチビルド（任意）
+- 実装を素早く反映したい場合は「実行とデバッグ」ビューで `npm: watch` タスクを別途実行してください。
+
+### VSIX パッケージが必要なとき
+配布・検証用に VSIX を作成する場合のみ行います。
+
+```bash
+npm run build
+npm run package
+# 生成された *.vsix をインストール
+code --install-extension ./yuihub-copilot-chat-*.vsix
+```
+
+トラブル時は「出力 > 拡張ホスト」や「開発者ツール」を参照してください。

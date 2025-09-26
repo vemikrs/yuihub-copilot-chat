@@ -51,6 +51,11 @@
         "command": "yuihub.issueThread",
         "title": "YuiHub: Issue New Thread ID",
         "category": "YuiHub"
+      },
+      {
+        "command": "yuihub.openLogs",
+        "title": "YuiHub: Open Logs",
+        "category": "YuiHub"
       }
     ],
     "configuration": {
@@ -64,7 +69,19 @@
         "yuihub.apiKey": {
           "type": "string",
           "default": "",
-          "markdownDescription": "Optional API key. If set, sent as `Authorization: Bearer <key>`."
+          "markdownDescription": "Optional API token. Used according to `yuihub.authHeader` and `yuihub.authScheme`."
+        },
+        "yuihub.authHeader": {
+          "type": "string",
+          "enum": ["auto", "authorization", "x-yuihub-token"],
+          "default": "auto",
+          "markdownDescription": "Which header to use for authentication.\n- auto: try Authorization first, on 401/403 fall back to x-yuihub-token\n- authorization: send token via `Authorization`\n- x-yuihub-token: send token via `x-yuihub-token`"
+        },
+        "yuihub.authScheme": {
+          "type": "string",
+          "enum": ["bearer", "none"],
+          "default": "bearer",
+          "markdownDescription": "How to format the token when using Authorization header.\n- bearer: send as `Authorization: Bearer <token>` (if token already starts with 'Bearer ', keep as-is)\n- none: send the token as-is in Authorization header"
         },
         "yuihub.defaultSource": {
           "type": "string",
@@ -125,8 +142,11 @@
   },
   "homepage": "https://github.com/vemikrs/vscode-yuihub-copilot-chat",
   "scripts": {
-    "build": "esbuild src/extension.ts --bundle --outfile=dist/extension.js --format=cjs --platform=node",
-    "package": "vsce package",
+  "build": "esbuild src/extension.ts --bundle --outfile=dist/extension.js --format=cjs --platform=node --external:vscode --sourcemap",
+  "watch": "esbuild src/extension.ts --bundle --outfile=dist/extension.js --format=cjs --platform=node --external:vscode --sourcemap --watch",
+    "typecheck": "tsc --noEmit",
+    "prepackage": "mkdir -p packages",
+    "package": "vsce package -o packages/",
     "publish": "vsce publish"
   },
   "devDependencies": {

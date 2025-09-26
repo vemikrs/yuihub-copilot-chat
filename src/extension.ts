@@ -5,11 +5,18 @@ type SearchHit = { id: string; title?: string; snippet?: string; thread?: string
 type SearchResponse = { ok: boolean; total: number; hits: SearchHit[] };
 type SaveResponse = { ok: boolean; data?: { id: string; thread: string; when: string } };
 
+// Output channel for diagnostics
+const out = vscode.window.createOutputChannel('YuiHub');
+
 function cfg<T = string>(key: string): T {
   return vscode.workspace.getConfiguration().get<T>(key)!;
 }
 function baseUrl() { return cfg<string>('yuihub.apiBaseUrl').replace(/\/$/, ''); }
 function apiKey() { return cfg<string>('yuihub.apiKey'); }
+type AuthHeader = 'auto' | 'authorization' | 'x-yuihub-token';
+type AuthScheme = 'bearer' | 'none';
+function authHeaderPref(): AuthHeader { return (cfg<string>('yuihub.authHeader') as AuthHeader) || 'auto'; }
+function authScheme(): AuthScheme { return (cfg<string>('yuihub.authScheme') as AuthScheme) || 'bearer'; }
 function defaultThread(context: vscode.ExtensionContext): string | undefined {
   const s = cfg<string>('yuihub.defaultThreadId');
   if (s) return s;
@@ -18,34 +25,135 @@ function defaultThread(context: vscode.ExtensionContext): string | undefined {
 function setThread(context: vscode.ExtensionContext, th: string) {
   context.workspaceState.update('yuihub.thread', th);
 }
-function headers() {
+function headers(useHeader: Exclude<AuthHeader, 'auto'> | null = null): Record<string,string> {
   const h: Record<string,string> = { 'Content-Type': 'application/json' };
   const key = apiKey();
-  if (key) h['Authorization'] = `Bearer ${key}`;
+  if (!key) return h;
+  const headerMode: Exclude<AuthHeader, 'auto'> = useHeader ?? (authHeaderPref() === 'x-yuihub-token' ? 'x-yuihub-token' : 'authorization');
+  if (headerMode === 'x-yuihub-token') {
+    h['x-yuihub-token'] = key;
+  } else {
+    const scheme = authScheme();
+    if (scheme === 'bearer') {
+      const val = /^Bearer\s+/i.test(key) ? key : `Bearer ${key}`;
+      h['Authorization'] = val;
+    } else {
+      h['Authorization'] = key;
+    }
+  }
   return h;
+}
+function redact(v: any) { return typeof v === 'string' ? v.replace(/(Bearer\s+)[^\s]+/i, '$1***') : v; }
+function logRequest(method: string, url: URL | string, init?: RequestInit) {
+  const u = typeof url === 'string' ? url : url.toString();
+  const hdr = init?.headers as Record<string,string> | undefined;
+  out.appendLine(`[HTTP] ${method} ${u}`);
+  if (hdr) {
+    const masked = Object.fromEntries(Object.entries(hdr).map(([k,v]) => {
+      const lower = k.toLowerCase();
+      if (lower === 'authorization' || lower === 'x-yuihub-token') return [k, '***'];
+      return [k, v];
+    }));
+    out.appendLine(`[HTTP] headers=${JSON.stringify(masked, null, 0)}`);
+  }
+}
+async function readBodySafe(res: Response) {
+  try { return await res.text(); } catch { return ''; }
+}
+async function throwHttpError(ctx: { method: string; url: string }, res: Response): Promise<never> {
+  const body = await readBodySafe(res);
+  const snippet = body?.slice(0, 400) ?? '';
+  const msg = `HTTP ${res.status} ${res.statusText}` + (snippet ? ` — ${snippet}` : '');
+  out.appendLine(`[HTTP] ERROR ${ctx.method} ${ctx.url} -> ${res.status} ${res.statusText}`);
+  if (snippet) out.appendLine(`[HTTP] body: ${snippet}`);
+  const err = new Error(msg);
+  // @ts-ignore add extra
+  err.status = res.status;
+  throw err;
 }
 async function get<T>(path: string, params?: Record<string,any>): Promise<T> {
   const url = new URL(baseUrl() + path);
   if (params) Object.entries(params).forEach(([k,v]) => v === undefined ? null : url.searchParams.set(k, String(v)));
-  const res = await fetch(url, { method: 'GET', headers: headers() });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return await res.json() as T;
+  const initialHeader: Exclude<AuthHeader,'auto'> | null = authHeaderPref() === 'x-yuihub-token' ? 'x-yuihub-token' : 'authorization';
+  let init = { method: 'GET', headers: headers(initialHeader) } as RequestInit;
+  logRequest('GET', url, init);
+  const res = await fetch(url, init);
+  if (!res.ok && (res.status === 401 || res.status === 403) && authHeaderPref() === 'auto') {
+    // failover to the other header
+    const fallbackHeader: Exclude<AuthHeader,'auto'> = initialHeader === 'authorization' ? 'x-yuihub-token' : 'authorization';
+    init = { method: 'GET', headers: headers(fallbackHeader) } as RequestInit;
+    out.appendLine(`[HTTP] retry with header=${fallbackHeader}`);
+    logRequest('GET', url, init);
+    const res2 = await fetch(url, init);
+    if (!res2.ok) return throwHttpError({ method: 'GET', url: url.toString() }, res2);
+    const json2 = await res2.json() as T;
+    out.appendLine(`[HTTP] OK GET ${url.toString()} (${res2.status})`);
+    return json2;
+  }
+  if (!res.ok) return throwHttpError({ method: 'GET', url: url.toString() }, res);
+  const json = await res.json() as T;
+  out.appendLine(`[HTTP] OK GET ${url.toString()} (${res.status})`);
+  return json;
 }
 async function post<T>(path: string, body: any): Promise<T> {
-  const res = await fetch(baseUrl() + path, { method: 'POST', headers: headers(), body: JSON.stringify(body) });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return await res.json() as T;
+  const url = baseUrl() + path;
+  const initialHeader: Exclude<AuthHeader,'auto'> | null = authHeaderPref() === 'x-yuihub-token' ? 'x-yuihub-token' : 'authorization';
+  let init = { method: 'POST', headers: headers(initialHeader), body: JSON.stringify(body) } as RequestInit;
+  logRequest('POST', url, init);
+  const res = await fetch(url, init);
+  if (!res.ok && (res.status === 401 || res.status === 403) && authHeaderPref() === 'auto') {
+    const fallbackHeader: Exclude<AuthHeader,'auto'> = initialHeader === 'authorization' ? 'x-yuihub-token' : 'authorization';
+    init = { method: 'POST', headers: headers(fallbackHeader), body: JSON.stringify(body) } as RequestInit;
+    out.appendLine(`[HTTP] retry with header=${fallbackHeader}`);
+    logRequest('POST', url, init);
+    const res2 = await fetch(url, init);
+    if (!res2.ok) return throwHttpError({ method: 'POST', url }, res2);
+    const json2 = await res2.json() as T;
+    out.appendLine(`[HTTP] OK POST ${url} (${res2.status})`);
+    return json2;
+  }
+  if (!res.ok) return throwHttpError({ method: 'POST', url }, res);
+  const json = await res.json() as T;
+  out.appendLine(`[HTTP] OK POST ${url} (${res.status})`);
+  return json;
 }
 
 export function activate(context: vscode.ExtensionContext) {
+  async function handleHttpError(e: any, contextLabel: string) {
+    const status = e?.status;
+    if (status === 401) {
+      const sel = await vscode.window.showErrorMessage(`${contextLabel} failed: Unauthorized (401). Set yuihub.apiKey in Settings.`, 'Open YuiHub Settings', 'Show Logs');
+      if (sel === 'Open YuiHub Settings') {
+        await vscode.commands.executeCommand('workbench.action.openSettings', 'yuihub');
+      } else if (sel === 'Show Logs') {
+        out.show(true);
+      }
+    } else {
+      vscode.window.showErrorMessage(`${contextLabel} failed: ${e?.message ?? e}`);
+    }
+  }
+  // Initial diagnostics
+  const k = apiKey();
+  out.appendLine('YuiHub extension activated');
+  out.appendLine(`baseUrl=${baseUrl()}`);
+  out.appendLine(`apiKey=${k ? '***' : '(none)'}`);
+  out.appendLine(`defaultThreadId=${cfg<string>('yuihub.defaultThreadId') || '(none)'}`);
+  out.appendLine(`searchLimit=${cfg<number>('yuihub.searchLimit')}`);
+
+  // Open logs command
+  context.subscriptions.push(vscode.commands.registerCommand('yuihub.openLogs', async () => {
+    out.show(true);
+  }));
   // Smoke Test
   context.subscriptions.push(vscode.commands.registerCommand('yuihub.smokeTest', async () => {
     try {
       const health = await get<Health>('/health');
       const msg = health.ok ? `OK  version=${health.version ?? 'n/a'} env=${health.environment ?? 'n/a'}` : 'Not OK';
       vscode.window.showInformationMessage(`YuiHub /health: ${msg}`);
+      out.appendLine(`/health -> ${msg}`);
     } catch (e: any) {
       vscode.window.showErrorMessage(`Smoke Test failed: ${e.message}`);
+      out.appendLine(`[SmokeTest] ERROR ${e?.message ?? e}`);
     }
   }));
 
@@ -74,7 +182,8 @@ export function activate(context: vscode.ExtensionContext) {
         await vscode.window.showTextDocument(doc);
       }
     } catch (e: any) {
-      vscode.window.showErrorMessage(`Search failed: ${e.message}`);
+      out.appendLine(`[Search] ERROR ${e?.message ?? e}`);
+      await handleHttpError(e, 'Search');
     }
   }));
 
@@ -85,8 +194,10 @@ export function activate(context: vscode.ExtensionContext) {
       if (!res.ok || !res.data?.thread) throw new Error('No thread returned');
       setThread(context, res.data.thread);
       vscode.window.showInformationMessage(`New thread issued: ${res.data.thread}`);
+      out.appendLine(`[IssueThread] OK ${res.data.thread}`);
     } catch (e: any) {
-      vscode.window.showErrorMessage(`Issue thread failed: ${e.message}`);
+      out.appendLine(`[IssueThread] ERROR ${e?.message ?? e}`);
+      await handleHttpError(e, 'Issue thread');
     }
   }));
 
@@ -121,8 +232,10 @@ export function activate(context: vscode.ExtensionContext) {
       const res = await post<SaveResponse>('/save', body);
       if (!res.ok || !res.data) throw new Error('Save failed');
       vscode.window.showInformationMessage(`Saved to ${res.data.thread} (id=${res.data.id})`);
+      out.appendLine(`[Save] OK thread=${res.data.thread} id=${res.data.id}`);
     } catch (e: any) {
-      vscode.window.showErrorMessage(`Save failed: ${e.message}`);
+      out.appendLine(`[Save] ERROR ${e?.message ?? e}`);
+      await handleHttpError(e, 'Save');
     }
   }));
 }

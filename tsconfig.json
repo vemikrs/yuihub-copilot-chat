@@ -5,6 +5,9 @@
     "moduleResolution": "Bundler",
     "strict": true,
     "esModuleInterop": true,
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    "sourceMap": true,
+    "types": ["vscode"],
+    "lib": ["ES2020", "DOM"]
   }
 }
