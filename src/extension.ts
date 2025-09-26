@@ -57,12 +57,24 @@ function logRequest(method: string, url: URL | string, init?: RequestInit) {
     out.appendLine(`[HTTP] headers=${JSON.stringify(masked, null, 0)}`);
   }
 }
+function requestTimeoutMs(): number { return Number(cfg<number>('yuihub.requestTimeoutMs') ?? 15000); }
+async function timedFetch(resource: URL | string, init?: RequestInit): Promise<Response> {
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), requestTimeoutMs());
+  try {
+    const res = await fetch(resource, { ...(init || {}), signal: controller.signal });
+    return res;
+  } finally {
+    clearTimeout(id);
+  }
+}
 async function readBodySafe(res: Response) {
   try { return await res.text(); } catch { return ''; }
 }
 async function throwHttpError(ctx: { method: string; url: string }, res: Response): Promise<never> {
-  const body = await readBodySafe(res);
-  const snippet = body?.slice(0, 400) ?? '';
+  const includeBodies = !!cfg<boolean>('yuihub.logResponseBodies');
+  const body = includeBodies ? await readBodySafe(res) : '';
+  const snippet = includeBodies ? (body?.slice(0, 400) ?? '') : '';
   const msg = `HTTP ${res.status} ${res.statusText}` + (snippet ? ` — ${snippet}` : '');
   out.appendLine(`[HTTP] ERROR ${ctx.method} ${ctx.url} -> ${res.status} ${res.statusText}`);
   if (snippet) out.appendLine(`[HTTP] body: ${snippet}`);
@@ -77,14 +89,14 @@ async function get<T>(path: string, params?: Record<string,any>): Promise<T> {
   const initialHeader: Exclude<AuthHeader,'auto'> | null = authHeaderPref() === 'x-yuihub-token' ? 'x-yuihub-token' : 'authorization';
   let init = { method: 'GET', headers: headers(initialHeader) } as RequestInit;
   logRequest('GET', url, init);
-  const res = await fetch(url, init);
+  const res = await timedFetch(url, init);
   if (!res.ok && (res.status === 401 || res.status === 403) && authHeaderPref() === 'auto') {
     // failover to the other header
     const fallbackHeader: Exclude<AuthHeader,'auto'> = initialHeader === 'authorization' ? 'x-yuihub-token' : 'authorization';
     init = { method: 'GET', headers: headers(fallbackHeader) } as RequestInit;
     out.appendLine(`[HTTP] retry with header=${fallbackHeader}`);
     logRequest('GET', url, init);
-    const res2 = await fetch(url, init);
+    const res2 = await timedFetch(url, init);
     if (!res2.ok) return throwHttpError({ method: 'GET', url: url.toString() }, res2);
     const json2 = await res2.json() as T;
     out.appendLine(`[HTTP] OK GET ${url.toString()} (${res2.status})`);
@@ -100,13 +112,13 @@ async function post<T>(path: string, body: any): Promise<T> {
   const initialHeader: Exclude<AuthHeader,'auto'> | null = authHeaderPref() === 'x-yuihub-token' ? 'x-yuihub-token' : 'authorization';
   let init = { method: 'POST', headers: headers(initialHeader), body: JSON.stringify(body) } as RequestInit;
   logRequest('POST', url, init);
-  const res = await fetch(url, init);
+  const res = await timedFetch(url, init);
   if (!res.ok && (res.status === 401 || res.status === 403) && authHeaderPref() === 'auto') {
     const fallbackHeader: Exclude<AuthHeader,'auto'> = initialHeader === 'authorization' ? 'x-yuihub-token' : 'authorization';
     init = { method: 'POST', headers: headers(fallbackHeader), body: JSON.stringify(body) } as RequestInit;
     out.appendLine(`[HTTP] retry with header=${fallbackHeader}`);
     logRequest('POST', url, init);
-    const res2 = await fetch(url, init);
+    const res2 = await timedFetch(url, init);
     if (!res2.ok) return throwHttpError({ method: 'POST', url }, res2);
     const json2 = await res2.json() as T;
     out.appendLine(`[HTTP] OK POST ${url} (${res2.status})`);
@@ -164,6 +176,15 @@ export function activate(context: vscode.ExtensionContext) {
   out.appendLine(`apiKey=${k ? '***' : '(none)'}`);
   out.appendLine(`defaultThreadId=${cfg<string>('yuihub.defaultThreadId') || '(none)'}`);
   out.appendLine(`searchLimit=${cfg<number>('yuihub.searchLimit')}`);
+  // Warn for non-local HTTP
+  try {
+    const bu = baseUrl();
+    const isHttp = /^http:\/\//i.test(bu);
+    const isLocal = /^(http:\/\/)?(localhost|127\.0\.0\.1|::1)(:\d+)?([\/]|$)/i.test(bu);
+    if (isHttp && !isLocal) {
+      vscode.window.showWarningMessage('YuiHub: baseUrl が HTTP です。HTTPS の利用を推奨します。');
+    }
+  } catch {}
 
   // Open logs command
   context.subscriptions.push(vscode.commands.registerCommand('yuihub.openLogs', async () => {
@@ -247,7 +268,22 @@ export function activate(context: vscode.ExtensionContext) {
 
     const editor = vscode.window.activeTextEditor;
     if (!editor) { vscode.window.showWarningMessage('No active editor.'); return; }
-    const text = editor.document.getText(editor.selection) || editor.document.getText();
+    const selText = editor.document.getText(editor.selection);
+    let text = selText;
+    const confirmFull = !!cfg<boolean>('yuihub.saveConfirmOnFullDocument');
+    if (!selText) {
+      const full = editor.document.getText();
+      if (!full.trim()) { vscode.window.showWarningMessage('No text to save.'); return; }
+      if (confirmFull) {
+  const bytes = new TextEncoder().encode(full).byteLength;
+        const threshold = Number(cfg<number>('yuihub.saveConfirmFullDocThresholdBytes') ?? 8192);
+        const sizeInfo = `${bytes} bytes, ${editor.document.lineCount} lines`;
+        const severity = bytes >= threshold ? '大きな' : '全文';
+        const sel = await vscode.window.showWarningMessage(`選択がありません。${severity}ドキュメントを送信しますか？ (${sizeInfo})`, '送信する', 'キャンセル');
+        if (sel !== '送信する') return;
+      }
+      text = full;
+    }
     if (!text.trim()) { vscode.window.showWarningMessage('No text to save.'); return; }
 
     const author = cfg<string>('yuihub.defaultAuthor');
