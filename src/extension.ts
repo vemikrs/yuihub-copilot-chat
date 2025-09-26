@@ -8,11 +8,15 @@ type SaveResponse = { ok: boolean; data?: { id: string; thread: string; when: st
 // Output channel for diagnostics
 const out = vscode.window.createOutputChannel('YuiHub');
 
+// Secret storage key
+const SECRET_API_KEY = 'yuihub.apiKey';
+let secretToken: string | undefined;
+
 function cfg<T = string>(key: string): T {
   return vscode.workspace.getConfiguration().get<T>(key)!;
 }
 function baseUrl() { return cfg<string>('yuihub.apiBaseUrl').replace(/\/$/, ''); }
-function apiKey() { return cfg<string>('yuihub.apiKey'); }
+function apiKey() { return secretToken || cfg<string>('yuihub.apiKey'); }
 type AuthHeader = 'auto' | 'authorization' | 'x-yuihub-token';
 type AuthScheme = 'bearer' | 'none';
 function authHeaderPref(): AuthHeader { return (cfg<string>('yuihub.authHeader') as AuthHeader) || 'auto'; }
@@ -57,12 +61,24 @@ function logRequest(method: string, url: URL | string, init?: RequestInit) {
     out.appendLine(`[HTTP] headers=${JSON.stringify(masked, null, 0)}`);
   }
 }
+function requestTimeoutMs(): number { return Number(cfg<number>('yuihub.requestTimeoutMs') ?? 15000); }
+async function timedFetch(resource: URL | string, init?: RequestInit): Promise<Response> {
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), requestTimeoutMs());
+  try {
+    const res = await fetch(resource, { ...(init || {}), signal: controller.signal });
+    return res;
+  } finally {
+    clearTimeout(id);
+  }
+}
 async function readBodySafe(res: Response) {
   try { return await res.text(); } catch { return ''; }
 }
 async function throwHttpError(ctx: { method: string; url: string }, res: Response): Promise<never> {
-  const body = await readBodySafe(res);
-  const snippet = body?.slice(0, 400) ?? '';
+  const includeBodies = !!cfg<boolean>('yuihub.logResponseBodies');
+  const body = includeBodies ? await readBodySafe(res) : '';
+  const snippet = includeBodies ? (body?.slice(0, 400) ?? '') : '';
   const msg = `HTTP ${res.status} ${res.statusText}` + (snippet ? ` — ${snippet}` : '');
   out.appendLine(`[HTTP] ERROR ${ctx.method} ${ctx.url} -> ${res.status} ${res.statusText}`);
   if (snippet) out.appendLine(`[HTTP] body: ${snippet}`);
@@ -77,14 +93,14 @@ async function get<T>(path: string, params?: Record<string,any>): Promise<T> {
   const initialHeader: Exclude<AuthHeader,'auto'> | null = authHeaderPref() === 'x-yuihub-token' ? 'x-yuihub-token' : 'authorization';
   let init = { method: 'GET', headers: headers(initialHeader) } as RequestInit;
   logRequest('GET', url, init);
-  const res = await fetch(url, init);
+  const res = await timedFetch(url, init);
   if (!res.ok && (res.status === 401 || res.status === 403) && authHeaderPref() === 'auto') {
     // failover to the other header
     const fallbackHeader: Exclude<AuthHeader,'auto'> = initialHeader === 'authorization' ? 'x-yuihub-token' : 'authorization';
     init = { method: 'GET', headers: headers(fallbackHeader) } as RequestInit;
     out.appendLine(`[HTTP] retry with header=${fallbackHeader}`);
     logRequest('GET', url, init);
-    const res2 = await fetch(url, init);
+    const res2 = await timedFetch(url, init);
     if (!res2.ok) return throwHttpError({ method: 'GET', url: url.toString() }, res2);
     const json2 = await res2.json() as T;
     out.appendLine(`[HTTP] OK GET ${url.toString()} (${res2.status})`);
@@ -100,13 +116,13 @@ async function post<T>(path: string, body: any): Promise<T> {
   const initialHeader: Exclude<AuthHeader,'auto'> | null = authHeaderPref() === 'x-yuihub-token' ? 'x-yuihub-token' : 'authorization';
   let init = { method: 'POST', headers: headers(initialHeader), body: JSON.stringify(body) } as RequestInit;
   logRequest('POST', url, init);
-  const res = await fetch(url, init);
+  const res = await timedFetch(url, init);
   if (!res.ok && (res.status === 401 || res.status === 403) && authHeaderPref() === 'auto') {
     const fallbackHeader: Exclude<AuthHeader,'auto'> = initialHeader === 'authorization' ? 'x-yuihub-token' : 'authorization';
     init = { method: 'POST', headers: headers(fallbackHeader), body: JSON.stringify(body) } as RequestInit;
     out.appendLine(`[HTTP] retry with header=${fallbackHeader}`);
     logRequest('POST', url, init);
-    const res2 = await fetch(url, init);
+    const res2 = await timedFetch(url, init);
     if (!res2.ok) return throwHttpError({ method: 'POST', url }, res2);
     const json2 = await res2.json() as T;
     out.appendLine(`[HTTP] OK POST ${url} (${res2.status})`);
@@ -119,6 +135,43 @@ async function post<T>(path: string, body: any): Promise<T> {
 }
 
 export function activate(context: vscode.ExtensionContext) {
+  // Prime secret from SecretStorage
+  context.secrets.get(SECRET_API_KEY).then(v => {
+    secretToken = v || undefined;
+    out.appendLine(`[Secrets] token=${secretToken ? '***' : '(none)'}`);
+  });
+  const secretDisp = context.secrets.onDidChange(async (e) => {
+    if (e.key === SECRET_API_KEY) {
+      secretToken = (await context.secrets.get(SECRET_API_KEY)) || undefined;
+      out.appendLine(`[Secrets] token changed -> ${secretToken ? '***' : '(none)'}`);
+    }
+  });
+  context.subscriptions.push(secretDisp);
+  // Trust state diagnostics
+  out.appendLine(`[Trust] workspace.isTrusted=${vscode.workspace.isTrusted}`);
+
+  function requireTrusted(feature: string): boolean {
+    if (vscode.workspace.isTrusted) return true;
+    vscode.window.showWarningMessage(
+      `${feature} は未信頼ワークスペースでは無効です。ワークスペースを信頼すると使用できます。`,
+      'ワークスペースの信頼を管理',
+      'ログを開く'
+    ).then(sel => {
+      if (sel === 'ワークスペースの信頼を管理') {
+        vscode.commands.executeCommand('workbench.trust.manage');
+      } else if (sel === 'ログを開く') {
+        out.show(true);
+      }
+    });
+    return false;
+  }
+
+  // When workspace becomes trusted later
+  const trustDisp = vscode.workspace.onDidGrantWorkspaceTrust(() => {
+    out.appendLine('[Trust] Workspace has been granted trust. Full functionality enabled.');
+    vscode.window.showInformationMessage('YuiHub: ワークスペースが信頼されました。すべての機能が有効になりました。');
+  });
+  context.subscriptions.push(trustDisp);
   async function handleHttpError(e: any, contextLabel: string) {
     const status = e?.status;
     if (status === 401) {
@@ -139,10 +192,38 @@ export function activate(context: vscode.ExtensionContext) {
   out.appendLine(`apiKey=${k ? '***' : '(none)'}`);
   out.appendLine(`defaultThreadId=${cfg<string>('yuihub.defaultThreadId') || '(none)'}`);
   out.appendLine(`searchLimit=${cfg<number>('yuihub.searchLimit')}`);
+  // Warn for non-local HTTP
+  try {
+    const bu = baseUrl();
+    const isHttp = /^http:\/\//i.test(bu);
+    const isLocal = /^(http:\/\/)?(localhost|127\.0\.0\.1|::1)(:\d+)?([\/]|$)/i.test(bu);
+    if (isHttp && !isLocal) {
+      vscode.window.showWarningMessage('YuiHub: baseUrl が HTTP です。HTTPS の利用を推奨します。');
+    }
+  } catch {}
 
   // Open logs command
   context.subscriptions.push(vscode.commands.registerCommand('yuihub.openLogs', async () => {
     out.show(true);
+  }));
+  // Set API token (SecretStorage)
+  context.subscriptions.push(vscode.commands.registerCommand('yuihub.setApiToken', async () => {
+    const token = await vscode.window.showInputBox({
+      prompt: 'Enter API token (empty to clear)',
+      password: true,
+      ignoreFocusOut: true,
+      placeHolder: 'Paste token here'
+    });
+    if (token === undefined) return; // cancelled
+    if (token === '') {
+      await context.secrets.delete(SECRET_API_KEY);
+      secretToken = undefined;
+      vscode.window.showInformationMessage('YuiHub: APIトークンを削除しました（SecretStorage）。');
+      return;
+    }
+    await context.secrets.store(SECRET_API_KEY, token);
+    secretToken = token;
+    vscode.window.showInformationMessage('YuiHub: APIトークンを保存しました（SecretStorage）。');
   }));
   // Smoke Test
   context.subscriptions.push(vscode.commands.registerCommand('yuihub.smokeTest', async () => {
@@ -203,6 +284,7 @@ export function activate(context: vscode.ExtensionContext) {
 
   // Save Selection
   context.subscriptions.push(vscode.commands.registerCommand('yuihub.saveSelection', async () => {
+    if (!requireTrusted('YuiHub: Save Selection')) return;
     let th = defaultThread(context);
     if (!th) {
       const input = await vscode.window.showInputBox({ prompt: 'Enter Thread ID (th-...) or leave empty to create new' });
@@ -221,7 +303,22 @@ export function activate(context: vscode.ExtensionContext) {
 
     const editor = vscode.window.activeTextEditor;
     if (!editor) { vscode.window.showWarningMessage('No active editor.'); return; }
-    const text = editor.document.getText(editor.selection) || editor.document.getText();
+    const selText = editor.document.getText(editor.selection);
+    let text = selText;
+    const confirmFull = !!cfg<boolean>('yuihub.saveConfirmOnFullDocument');
+    if (!selText) {
+      const full = editor.document.getText();
+      if (!full.trim()) { vscode.window.showWarningMessage('No text to save.'); return; }
+      if (confirmFull) {
+  const bytes = new TextEncoder().encode(full).byteLength;
+        const threshold = Number(cfg<number>('yuihub.saveConfirmFullDocThresholdBytes') ?? 8192);
+        const sizeInfo = `${bytes} bytes, ${editor.document.lineCount} lines`;
+        const severity = bytes >= threshold ? '大きな' : '全文';
+        const sel = await vscode.window.showWarningMessage(`選択がありません。${severity}ドキュメントを送信しますか？ (${sizeInfo})`, '送信する', 'キャンセル');
+        if (sel !== '送信する') return;
+      }
+      text = full;
+    }
     if (!text.trim()) { vscode.window.showWarningMessage('No text to save.'); return; }
 
     const author = cfg<string>('yuihub.defaultAuthor');

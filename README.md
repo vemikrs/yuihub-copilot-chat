@@ -14,23 +14,50 @@ Shelter モード前提：ユーザーが設定しない限り外部送信は行
 
 ## 📌 主な機能
 
-- スモークテスト：`GET /health` で YuiHub サーバとの疎通を確認  
-- 検索：`GET /search?q&limit` でヒットを取得、QuickPick で選択・貼付  
-- スレッド発行：`POST /threads/new` で新しい Thread ID を生成  
-- 保存：`POST /save` で選択テキストを YuiHub に保存
+- 検索（QuickPick でヒットを選択してエディタへ挿入）
+- 選択テキストの保存（確認ダイアログ付き・信頼済みWSで有効）
+- スレッドIDの新規発行とワークスペース保持
+- スモークテスト（/health）で疎通確認
+- ログビューの表示（リクエスト概要・エラー）
+- SecretStorage による API トークン管理（コマンドで設定）
+- Workspace Trust 対応の限定モード（未信頼WSでは安全側に制限）
+- タイムアウト/HTTP警告/ログ抑制などのハードニング設定
+
+## Workspace Trust とセキュリティ
+
+本拡張は VS Code の Workspace Trust（信頼済みワークスペース）に対応しています。ワークスペースが未信頼の場合は、リスク低減のため「限定モード」で動作します。
+
+- 無効化される機能: 「YuiHub: Save Selection」（ワークスペースの内容を読み取り・送信しうるため）
+- 許可される機能: ユーザーの明示入力のみを送信するコマンド（検索クエリの入力、スモークテストなど）
+- 備考: 拡張はワークスペースから任意コードを実行しません
+
+フル機能が必要な場合は、ワークスペースを信頼してください。通知のアクション、またはコマンドパレットから「Workspaces: Manage Workspace Trust」を実行して切り替えできます。
+
+また、未信頼ワークスペースでは以下の設定はワークスペース構成からは反映されません（restrictedConfigurations）：`yuihub.apiBaseUrl`, `yuihub.apiKey`, `yuihub.authHeader`, `yuihub.authScheme`, `yuihub.defaultSource`, `yuihub.defaultAuthor`, `yuihub.defaultThreadId`, `yuihub.searchLimit`。
+
+### 追加のハードニングオプション
+
+- `yuihub.requestTimeoutMs`（数値, 既定 15000）: HTTP リクエストのタイムアウト（ms）
+- `yuihub.logResponseBodies`（boolean, 既定 false）: エラー時にレスポンス本文をログへ含める（最大400文字）。機密混入の恐れがあるため既定はOFF
+- `yuihub.saveConfirmOnFullDocument`（boolean, 既定 true）: 選択がない場合（全文送信）に確認ダイアログを表示
+- `yuihub.saveConfirmFullDocThresholdBytes`（数値, 既定 8192）: 全文の推定サイズ（byte）がこの閾値以上なら、より強い警告文言を表示
+
+注記: baseUrl が HTTP かつローカル以外の場合は、HTTPS 利用を推奨する警告を表示します。
 
 ---
 
 ## ⚙ インストール方法
 
 1. Visual Studio Marketplace から拡張機能をインストール  
-2. 拡張設定から以下を入力（`設定 > 拡張機能 > YuiHub`）：  
+2. コマンドパレットで「YuiHub: Set API Token (SecretStorage)」を実行し、APIトークンを保存（任意）  
+3. 拡張設定（`設定 > 拡張機能 > YuiHub`）で必要に応じて以下を設定  
    - `yuihub.apiBaseUrl`（例: `http://localhost:3000`）  
-   - `yuihub.apiKey`（任意。ない場合は認証なしモード）  
    - `yuihub.defaultSource`（`gpts | copilot | claude | human`）  
    - `yuihub.defaultAuthor`（例: `VSCode`）  
    - `yuihub.defaultThreadId`（空ならワークスペース保存 or 自動発行）  
    - `yuihub.searchLimit`（例: `10`）
+
+注: 設定の `yuihub.apiKey` は後方互換のため残していますが、セキュリティ上は SecretStorage の利用を推奨します。
 
 ---
 
@@ -40,6 +67,7 @@ Shelter モード前提：ユーザーが設定しない限り外部送信は行
 - `YuiHub: Search…`  
 - `YuiHub: Issue New Thread ID`  
 - `YuiHub: Save Selection to Thread`
+- `YuiHub: Set API Token (SecretStorage)`
 
 ---
 
@@ -50,6 +78,10 @@ Shelter モード前提：ユーザーが設定しない限り外部送信は行
 | スモークテストで失敗 | `apiBaseUrl` が間違っている、サーバ起動していない、ネットワーク接続確認 |
 | 検索結果が取得されない | クエリが正しいか、limit が過度に低くないか |
 | 保存に失敗する | 権限不足（APIキー）、Thread ID 未設定、APIエンドポイント構成不整合 |
+| APIトークンが反映されない | コマンド「YuiHub: Set API Token (SecretStorage)」を再実行。空で保存→再入力でリセット。環境がローカル/SSH/WSL/Dev Container で異なると秘密が別ストアになる点に注意。VS Code再起動や「YuiHub: Open Logs」でログ確認 |
+| SecretStorage の保存/取得に失敗（権限/鍵のロック） | OSのキーチェーン/キーストアがロックされていないか確認。Linuxは gnome-keyring/kwallet を起動しログイン解錠、リモート（SSH/Containers）は接続先でキーチェーンが利用可能か確認。暫定的に設定 `yuihub.apiKey` に設定し、後でシークレットへ移行 |
+| 誤ったトークンを削除したい | 「YuiHub: Set API Token (SecretStorage)」を実行し、空の入力で保存すると削除されます |
+| 未信頼WSで機能が出ない/保存できない | 未信頼では限定モード。Save Selectionは無効。必要なら「Workspaces: Manage Workspace Trust」で信頼に切り替え |
 
 ---
 
@@ -58,15 +90,9 @@ Shelter モード前提：ユーザーが設定しない限り外部送信は行
 - 送信先は **ユーザーが設定した YuiHub API のみ**  
 - 拡張は **テレメトリを一切送信しません**  
 - `Authorization: Bearer <apiKey>` は **設定がある場合のみ** 送信  
-- `apiKey` は VS Code の設定ストレージ（将来的に SecretStorage に変更検討）
+- APIトークンは **SecretStorage に保存**（設定 `yuihub.apiKey` はフォールバックとして読み取り可能）
 
 > プライバシーポリシーはコマンドパレットの `YuiHub: Open Privacy Policy` または [PRIVACY.md](./PRIVACY.md) から閲覧可能です。
-
----
-
-## 📄 変更履歴
-
-詳細は [CHANGELOG.md](CHANGELOG.md) をご参照ください。
 
 ---
 
@@ -79,7 +105,7 @@ Shelter モード前提：ユーザーが設定しない限り外部送信は行
 
 ## 📝 ライセンス
 
-この拡張機能は MIT ライセンスにて公開されています。詳細は [LICENSE](LICENSE) をご覧ください。
+この拡張機能は [MIT ライセンス](https://github.com/vemikrs/yuihub-copilot-chat/blob/main/LICENSE) にて公開されています。
 
 ---
 
