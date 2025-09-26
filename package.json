@@ -2,7 +2,7 @@
   "name": "yuihub-copilot-chat",
   "displayName": "YuiHub Copilot Chat",
   "publisher": "ve",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "Minimal VS Code bridge to YuiHub (search/save/health). Shelter by default.",
   "engines": {
     "vscode": "^1.92.0"
@@ -22,6 +22,15 @@
     "Context",
     "Packet",
     "YuiFlow"
+  ],
+  "activationEvents": [
+    "onCommand:yuihub.smokeTest",
+    "onCommand:yuihub.search",
+    "onCommand:yuihub.saveSelection",
+    "onCommand:yuihub.issueThread",
+    "onCommand:yuihub.openLogs",
+    "onCommand:yuihub.setApiToken",
+    "onView:yuihub.results"
   ],
   
   "contributes": {
@@ -51,6 +60,11 @@
         "command": "yuihub.openLogs",
         "title": "YuiHub: Open Logs",
         "category": "YuiHub"
+      },
+      {
+        "command": "yuihub.setApiToken",
+        "title": "YuiHub: Set API Token (SecretStorage)",
+        "category": "YuiHub"
       }
     ],
     "configuration": {
@@ -64,7 +78,9 @@
         "yuihub.apiKey": {
           "type": "string",
           "default": "",
-          "markdownDescription": "Optional API token. Used according to `yuihub.authHeader` and `yuihub.authScheme`."
+          "markdownDescription": "Optional API token. Used according to `yuihub.authHeader` and `yuihub.authScheme`.\n\nセキュリティ向上のため、設定保存ではなく SecretStorage を推奨します。コマンド `YuiHub: Set API Token (SecretStorage)` を使って保存してください。",
+          "deprecationMessage": "Deprecated: Please store your API token in SecretStorage (run 'YuiHub: Set API Token (SecretStorage)' from the Command Palette). This setting will be removed in a future release.",
+          "markdownDeprecationMessage": "**Deprecated**: Please store your API token in SecretStorage (run `YuiHub: Set API Token (SecretStorage)` from the Command Palette). This setting will be removed in a future release."
         },
         "yuihub.authHeader": {
           "type": "string",

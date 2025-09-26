@@ -8,11 +8,15 @@ type SaveResponse = { ok: boolean; data?: { id: string; thread: string; when: st
 // Output channel for diagnostics
 const out = vscode.window.createOutputChannel('YuiHub');
 
+// Secret storage key
+const SECRET_API_KEY = 'yuihub.apiKey';
+let secretToken: string | undefined;
+
 function cfg<T = string>(key: string): T {
   return vscode.workspace.getConfiguration().get<T>(key)!;
 }
 function baseUrl() { return cfg<string>('yuihub.apiBaseUrl').replace(/\/$/, ''); }
-function apiKey() { return cfg<string>('yuihub.apiKey'); }
+function apiKey() { return secretToken || cfg<string>('yuihub.apiKey'); }
 type AuthHeader = 'auto' | 'authorization' | 'x-yuihub-token';
 type AuthScheme = 'bearer' | 'none';
 function authHeaderPref(): AuthHeader { return (cfg<string>('yuihub.authHeader') as AuthHeader) || 'auto'; }
@@ -131,6 +135,18 @@ async function post<T>(path: string, body: any): Promise<T> {
 }
 
 export function activate(context: vscode.ExtensionContext) {
+  // Prime secret from SecretStorage
+  context.secrets.get(SECRET_API_KEY).then(v => {
+    secretToken = v || undefined;
+    out.appendLine(`[Secrets] token=${secretToken ? '***' : '(none)'}`);
+  });
+  const secretDisp = context.secrets.onDidChange(async (e) => {
+    if (e.key === SECRET_API_KEY) {
+      secretToken = (await context.secrets.get(SECRET_API_KEY)) || undefined;
+      out.appendLine(`[Secrets] token changed -> ${secretToken ? '***' : '(none)'}`);
+    }
+  });
+  context.subscriptions.push(secretDisp);
   // Trust state diagnostics
   out.appendLine(`[Trust] workspace.isTrusted=${vscode.workspace.isTrusted}`);
 
@@ -189,6 +205,25 @@ export function activate(context: vscode.ExtensionContext) {
   // Open logs command
   context.subscriptions.push(vscode.commands.registerCommand('yuihub.openLogs', async () => {
     out.show(true);
+  }));
+  // Set API token (SecretStorage)
+  context.subscriptions.push(vscode.commands.registerCommand('yuihub.setApiToken', async () => {
+    const token = await vscode.window.showInputBox({
+      prompt: 'Enter API token (empty to clear)',
+      password: true,
+      ignoreFocusOut: true,
+      placeHolder: 'Paste token here'
+    });
+    if (token === undefined) return; // cancelled
+    if (token === '') {
+      await context.secrets.delete(SECRET_API_KEY);
+      secretToken = undefined;
+      vscode.window.showInformationMessage('YuiHub: APIトークンを削除しました（SecretStorage）。');
+      return;
+    }
+    await context.secrets.store(SECRET_API_KEY, token);
+    secretToken = token;
+    vscode.window.showInformationMessage('YuiHub: APIトークンを保存しました（SecretStorage）。');
   }));
   // Smoke Test
   context.subscriptions.push(vscode.commands.registerCommand('yuihub.smokeTest', async () => {
