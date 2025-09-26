@@ -23,13 +23,7 @@
     "Packet",
     "YuiFlow"
   ],
-  "activationEvents": [
-    "onCommand:yuihub.smokeTest",
-    "onCommand:yuihub.search",
-    "onCommand:yuihub.saveSelection",
-    "onCommand:yuihub.issueThread",
-    "onView:yuihub.results"
-  ],
+  
   "contributes": {
     "commands": [
       {
@@ -126,7 +120,8 @@
       "yuihub": [
         {
           "id": "yuihub.results",
-          "name": "Search Results"
+          "name": "Search Results",
+          "icon": "media/icon.png"
         }
       ]
     }
@@ -148,6 +143,22 @@
     "prepackage": "mkdir -p packages",
     "package": "vsce package -o packages/",
     "publish": "vsce publish"
+  },
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": "limited",
+      "description": "In untrusted workspaces, this extension runs in limited mode: it does not read or transmit any workspace file contents and disables 'Save Selection'. Other commands require explicit user input only.",
+      "restrictedConfigurations": [
+        "yuihub.apiBaseUrl",
+        "yuihub.apiKey",
+        "yuihub.authHeader",
+        "yuihub.authScheme",
+        "yuihub.defaultSource",
+        "yuihub.defaultAuthor",
+        "yuihub.defaultThreadId",
+        "yuihub.searchLimit"
+      ]
+    }
   },
   "devDependencies": {
     "@types/vscode": "^1.92.0",

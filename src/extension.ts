@@ -119,6 +119,31 @@ async function post<T>(path: string, body: any): Promise<T> {
 }
 
 export function activate(context: vscode.ExtensionContext) {
+  // Trust state diagnostics
+  out.appendLine(`[Trust] workspace.isTrusted=${vscode.workspace.isTrusted}`);
+
+  function requireTrusted(feature: string): boolean {
+    if (vscode.workspace.isTrusted) return true;
+    vscode.window.showWarningMessage(
+      `${feature} は未信頼ワークスペースでは無効です。ワークスペースを信頼すると使用できます。`,
+      'ワークスペースの信頼を管理',
+      'ログを開く'
+    ).then(sel => {
+      if (sel === 'ワークスペースの信頼を管理') {
+        vscode.commands.executeCommand('workbench.trust.manage');
+      } else if (sel === 'ログを開く') {
+        out.show(true);
+      }
+    });
+    return false;
+  }
+
+  // When workspace becomes trusted later
+  const trustDisp = vscode.workspace.onDidGrantWorkspaceTrust(() => {
+    out.appendLine('[Trust] Workspace has been granted trust. Full functionality enabled.');
+    vscode.window.showInformationMessage('YuiHub: ワークスペースが信頼されました。すべての機能が有効になりました。');
+  });
+  context.subscriptions.push(trustDisp);
   async function handleHttpError(e: any, contextLabel: string) {
     const status = e?.status;
     if (status === 401) {
@@ -203,6 +228,7 @@ export function activate(context: vscode.ExtensionContext) {
 
   // Save Selection
   context.subscriptions.push(vscode.commands.registerCommand('yuihub.saveSelection', async () => {
+    if (!requireTrusted('YuiHub: Save Selection')) return;
     let th = defaultThread(context);
     if (!th) {
       const input = await vscode.window.showInputBox({ prompt: 'Enter Thread ID (th-...) or leave empty to create new' });

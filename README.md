@@ -14,10 +14,18 @@ Shelter モード前提：ユーザーが設定しない限り外部送信は行
 
 ## 📌 主な機能
 
-- スモークテスト：`GET /health` で YuiHub サーバとの疎通を確認  
-- 検索：`GET /search?q&limit` でヒットを取得、QuickPick で選択・貼付  
-- スレッド発行：`POST /threads/new` で新しい Thread ID を生成  
-- 保存：`POST /save` で選択テキストを YuiHub に保存
+
+## Workspace Trust and Security
+
+This extension supports VS Code Workspace Trust. When the current workspace is not trusted, the extension operates in a limited mode to reduce risk:
+
+- Disabled: "YuiHub: Save Selection" (it could read and transmit workspace content)
+- Allowed: Commands that require explicit user input only (e.g., Search query input, Smoke Test)
+- The extension never runs arbitrary code from the workspace.
+
+If you need full functionality, explicitly trust the workspace. You can manage trust from the notification action or via Command Palette: "Workspaces: Manage Workspace Trust".
+
+In addition, the following settings are restricted from being taken from workspace configuration when untrusted: `yuihub.apiBaseUrl`, `yuihub.apiKey`, `yuihub.authHeader`, `yuihub.authScheme`, `yuihub.defaultSource`, `yuihub.defaultAuthor`, `yuihub.defaultThreadId`, `yuihub.searchLimit`.
 
 ---
 
