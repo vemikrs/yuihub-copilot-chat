@@ -1,0 +1,138 @@
+{
+  "name": "yuihub-copilot-chat",
+  "displayName": "YuiHub Copilot Chat",
+  "publisher": "vemikrs",
+  "version": "0.0.1",
+  "description": "Minimal VS Code bridge to YuiHub (search/save/health). Shelter by default.",
+  "engines": {
+    "vscode": "^1.92.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "icon": "media/icon.png",
+  "galleryBanner": {
+    "color": "#0ea5e9",
+    "theme": "dark"
+  },
+  "keywords": [
+    "YuiHub",
+    "Copilot",
+    "Chat",
+    "Context",
+    "Packet",
+    "YuiFlow"
+  ],
+  "activationEvents": [
+    "onCommand:yuihub.smokeTest",
+    "onCommand:yuihub.search",
+    "onCommand:yuihub.saveSelection",
+    "onCommand:yuihub.issueThread",
+    "onView:yuihub.results"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "yuihub.smokeTest",
+        "title": "YuiHub: Smoke Test (Health)",
+        "category": "YuiHub"
+      },
+      {
+        "command": "yuihub.search",
+        "title": "YuiHub: Search…",
+        "category": "YuiHub"
+      },
+      {
+        "command": "yuihub.saveSelection",
+        "title": "YuiHub: Save Selection to Thread",
+        "category": "YuiHub"
+      },
+      {
+        "command": "yuihub.issueThread",
+        "title": "YuiHub: Issue New Thread ID",
+        "category": "YuiHub"
+      }
+    ],
+    "configuration": {
+      "title": "YuiHub",
+      "properties": {
+        "yuihub.apiBaseUrl": {
+          "type": "string",
+          "default": "http://localhost:3000",
+          "description": "Base URL of the YuiHub API (e.g., http://localhost:3000)"
+        },
+        "yuihub.apiKey": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Optional API key. If set, sent as `Authorization: Bearer <key>`."
+        },
+        "yuihub.defaultSource": {
+          "type": "string",
+          "enum": [
+            "gpts",
+            "copilot",
+            "claude",
+            "human"
+          ],
+          "default": "copilot",
+          "description": "Source field used when saving messages."
+        },
+        "yuihub.defaultAuthor": {
+          "type": "string",
+          "default": "VSCode",
+          "description": "Author used when saving messages (you can override per save)."
+        },
+        "yuihub.defaultThreadId": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Default thread id (e.g., `th-01XXXXXXXX...`). If empty, use workspaceState or prompt."
+        },
+        "yuihub.searchLimit": {
+          "type": "number",
+          "default": 10,
+          "minimum": 1,
+          "maximum": 100,
+          "description": "Max results for search."
+        }
+      }
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "yuihub",
+          "title": "YuiHub",
+          "icon": "media/icon.png"
+        }
+      ]
+    },
+    "views": {
+      "yuihub": [
+        {
+          "id": "yuihub.results",
+          "name": "Search Results"
+        }
+      ]
+    }
+  },
+  "main": "./dist/extension.js",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/vemikrs/vscode-yuihub-copilot-chat"
+  },
+  "bugs": {
+    "url": "https://github.com/vemikrs/vscode-yuihub-copilot-chat/issues"
+  },
+  "homepage": "https://github.com/vemikrs/vscode-yuihub-copilot-chat",
+  "scripts": {
+    "build": "esbuild src/extension.ts --bundle --outfile=dist/extension.js --format=cjs --platform=node",
+    "package": "vsce package",
+    "publish": "vsce publish"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.92.0",
+    "esbuild": "^0.25.10",
+    "typescript": "^5.4.5",
+    "vsce": "^1.97.0"
+  }
+}
