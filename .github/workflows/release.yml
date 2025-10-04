@@ -49,17 +49,8 @@ jobs:
           # Ensure tags are available (in case of shallow clones by defaults elsewhere)
           git fetch --force --tags >/dev/null 2>&1 || true
 
-          # Determine the previous semver tag before the current one
-          mapfile -t TAGS < <(git tag -l 'v*' --sort=version:refname)
-          PREV_TAG=""
-          PREV=""
-          for T in "${TAGS[@]}"; do
-            if [[ "$T" == "$VERSION" ]]; then
-              PREV_TAG="$PREV"
-              break
-            fi
-            PREV="$T"
-          done
+          # Determine the previous semver tag before the current one (efficiently)
+          PREV_TAG="$(git describe --abbrev=0 --tags --match='v*.*.*' HEAD~1 2>/dev/null || echo "")"
           echo "PREV_TAG=$PREV_TAG" >> "$GITHUB_OUTPUT"
 
       - name: Generate release notes
