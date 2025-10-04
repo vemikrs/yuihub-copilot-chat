@@ -1,0 +1,112 @@
+name: Create Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'  # vX.Y.Z形式のタグにマッチ
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0  # full history and tags
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        shell: bash
+        run: |
+          if [ -f package-lock.json ]; then
+            npm ci
+          else
+            npm i
+          fi
+
+      - name: Build extension
+        run: npm run build
+
+      - name: Package extension
+        run: npm run package
+
+      - name: Get tag version and previous tag
+        id: get_version
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF#refs/tags/}"
+          echo "VERSION=$VERSION" >> "$GITHUB_OUTPUT"
+
+          # Ensure tags are available (in case of shallow clones by defaults elsewhere)
+          git fetch --force --tags >/dev/null 2>&1 || true
+
+          # Determine the previous semver tag before the current one
+          mapfile -t TAGS < <(git tag -l 'v*' --sort=version:refname)
+          PREV_TAG=""
+          PREV=""
+          for T in "${TAGS[@]}"; do
+            if [[ "$T" == "$VERSION" ]]; then
+              PREV_TAG="$PREV"
+              break
+            fi
+            PREV="$T"
+          done
+          echo "PREV_TAG=$PREV_TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Generate release notes
+        id: release_notes
+        run: |
+          VERSION="${{ steps.get_version.outputs.VERSION }}"
+          PREV_TAG="${{ steps.get_version.outputs.PREV_TAG }}"
+          
+          echo "## YuiHub Copilot Chat $VERSION" > release_notes.md
+          echo "" >> release_notes.md
+          
+          if [ -n "$PREV_TAG" ]; then
+            echo "### Changes" >> release_notes.md
+            git log --no-merges --pretty=format:"- %s" "${PREV_TAG}..${VERSION}" >> release_notes.md
+            echo "" >> release_notes.md
+            echo "" >> release_notes.md
+            echo "**Full Changelog**: https://github.com/${{ github.repository }}/compare/${PREV_TAG}...${VERSION}" >> release_notes.md
+          else
+            echo "### Changes" >> release_notes.md
+            git log --no-merges --pretty=format:"- %s" >> release_notes.md
+          fi
+
+          echo "" >> release_notes.md
+          echo "---" >> release_notes.md
+          echo "" >> release_notes.md
+          echo "**Install**: Download the .vsix file and install via VS Code Extensions view" >> release_notes.md
+          echo "" >> release_notes.md
+          echo "**Marketplace**: https://marketplace.visualstudio.com/items?itemName=ve.yuihub-copilot-chat" >> release_notes.md
+      - name: Find VSIX file
+        id: find_vsix
+        run: |
+          VSIX_FILE=$(find packages -name "*.vsix" | head -n 1)
+          if [ -z "$VSIX_FILE" ]; then
+            echo "No VSIX package found in packages/" >&2
+            exit 1
+          fi
+          echo "VSIX_PATH=$VSIX_FILE" >> $GITHUB_OUTPUT
+          echo "VSIX_NAME=$(basename $VSIX_FILE)" >> $GITHUB_OUTPUT
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.get_version.outputs.VERSION }}
+          name: YuiHub Copilot Chat ${{ steps.get_version.outputs.VERSION }}
+          body_path: release_notes.md
+          files: ${{ steps.find_vsix.outputs.VSIX_PATH }}
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
