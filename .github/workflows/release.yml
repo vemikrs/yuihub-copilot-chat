@@ -29,7 +29,8 @@ jobs:
           if [ -f package-lock.json ]; then
             npm ci
           else
-            npm i
+            echo "Error: package-lock.json not found. Aborting."
+            exit 1
           fi
 
       - name: Build extension
