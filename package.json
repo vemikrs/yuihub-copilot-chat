@@ -2,10 +2,10 @@
   "name": "yuihub-copilot-chat",
   "displayName": "YuiHub Copilot Chat",
   "publisher": "ve",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "description": "Minimal VS Code bridge to YuiHub (search/save/health). Shelter by default.",
   "engines": {
-    "vscode": "^1.92.0"
+    "vscode": "^1.104.0"
   },
   "categories": [
     "Other"
@@ -178,8 +178,8 @@
   },
   "homepage": "https://github.com/vemikrs/vscode-yuihub-copilot-chat",
   "scripts": {
-  "build": "esbuild src/extension.ts --bundle --outfile=dist/extension.js --format=cjs --platform=node --external:vscode --sourcemap",
-  "watch": "esbuild src/extension.ts --bundle --outfile=dist/extension.js --format=cjs --platform=node --external:vscode --sourcemap --watch",
+    "build": "esbuild src/extension.ts --bundle --outfile=dist/extension.js --format=cjs --platform=node --external:vscode --sourcemap",
+    "watch": "esbuild src/extension.ts --bundle --outfile=dist/extension.js --format=cjs --platform=node --external:vscode --sourcemap --watch",
     "typecheck": "tsc --noEmit",
     "prepackage": "mkdir -p packages",
     "package": "vsce package -o packages/",
@@ -206,9 +206,9 @@
     }
   },
   "devDependencies": {
-    "@types/vscode": "^1.92.0",
+    "@types/vscode": "^1.104.0",
     "esbuild": "^0.25.10",
-    "typescript": "^5.4.5",
-    "vsce": "^1.97.0"
+    "typescript": "^5.9.3",
+    "vsce": "^2.15.0"
   }
 }
