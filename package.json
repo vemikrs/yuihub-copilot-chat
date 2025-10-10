@@ -2,10 +2,10 @@
   "name": "yuihub-copilot-chat",
   "displayName": "YuiHub Copilot Chat",
   "publisher": "ve",
-  "version": "0.0.4",
+  "version": "0.0.5",
   "description": "Minimal VS Code bridge to YuiHub (search/save/health). Shelter by default.",
   "engines": {
-    "vscode": "^1.104.0"
+    "vscode": "^1.106.0"
   },
   "categories": [
     "Other"
@@ -32,7 +32,6 @@
     "onCommand:yuihub.setApiToken",
     "onView:yuihub.results"
   ],
-  
   "contributes": {
     "commands": [
       {
@@ -84,13 +83,20 @@
         },
         "yuihub.authHeader": {
           "type": "string",
-          "enum": ["auto", "authorization", "x-yuihub-token"],
+          "enum": [
+            "auto",
+            "authorization",
+            "x-yuihub-token"
+          ],
           "default": "auto",
           "markdownDescription": "Which header to use for authentication.\n- auto: try Authorization first, on 401/403 fall back to x-yuihub-token\n- authorization: send token via `Authorization`\n- x-yuihub-token: send token via `x-yuihub-token`"
         },
         "yuihub.authScheme": {
           "type": "string",
-          "enum": ["bearer", "none"],
+          "enum": [
+            "bearer",
+            "none"
+          ],
           "default": "bearer",
           "markdownDescription": "How to format the token when using Authorization header.\n- bearer: send as `Authorization: Bearer <token>` (if token already starts with 'Bearer ', keep as-is)\n- none: send the token as-is in Authorization header"
         },
@@ -206,7 +212,7 @@
     }
   },
   "devDependencies": {
-    "@types/vscode": "^1.104.0",
+    "@types/vscode": "^1.105.0",
     "esbuild": "^0.25.10",
     "typescript": "^5.9.3",
     "vsce": "^2.15.0"
