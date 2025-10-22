@@ -2,7 +2,7 @@
   "name": "yuihub-copilot-chat",
   "displayName": "YuiHub Copilot Chat",
   "publisher": "ve",
-  "version": "0.0.5",
+  "version": "0.0.6",
   "description": "Minimal VS Code bridge to YuiHub (search/save/health). Shelter by default.",
   "engines": {
     "vscode": "^1.106.0"
@@ -22,15 +22,6 @@
     "Context",
     "Packet",
     "YuiFlow"
-  ],
-  "activationEvents": [
-    "onCommand:yuihub.smokeTest",
-    "onCommand:yuihub.search",
-    "onCommand:yuihub.saveSelection",
-    "onCommand:yuihub.issueThread",
-    "onCommand:yuihub.openLogs",
-    "onCommand:yuihub.setApiToken",
-    "onView:yuihub.results"
   ],
   "contributes": {
     "commands": [
@@ -64,6 +55,17 @@
         "command": "yuihub.setApiToken",
         "title": "YuiHub: Set API Token (SecretStorage)",
         "category": "YuiHub"
+      },
+      {
+        "command": "yuihub.openSearchResult",
+        "title": "YuiHub: Open Search Result",
+        "category": "YuiHub"
+      },
+      {
+        "command": "yuihub.clearSearchResults",
+        "title": "YuiHub: Clear Search Results",
+        "category": "YuiHub",
+        "icon": "$(clear-all)"
       }
     ],
     "configuration": {
@@ -154,6 +156,15 @@
         }
       }
     },
+    "menus": {
+      "view/title": [
+        {
+          "command": "yuihub.clearSearchResults",
+          "when": "view == yuihub.results",
+          "group": "navigation"
+        }
+      ]
+    },
     "viewsContainers": {
       "activitybar": [
         {
@@ -168,7 +179,7 @@
         {
           "id": "yuihub.results",
           "name": "Search Results",
-          "icon": "media/icon.png"
+          "icon": "media/search-icon.svg"
         }
       ]
     }
@@ -213,8 +224,8 @@
   },
   "devDependencies": {
     "@types/vscode": "^1.105.0",
-    "esbuild": "^0.25.10",
+    "esbuild": "^0.25.11",
     "typescript": "^5.9.3",
-    "vsce": "^2.15.0"
+    "@vscode/vsce": "^3.6.2"
   }
 }

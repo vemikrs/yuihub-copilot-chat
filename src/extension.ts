@@ -8,6 +8,94 @@ type SaveResponse = { ok: boolean; data?: { id: string; thread: string; when: st
 // Output channel for diagnostics
 const out = vscode.window.createOutputChannel('YuiHub');
 
+// Search Results Tree View Classes
+class SearchResultItem extends vscode.TreeItem {
+  constructor(
+    public readonly hit: SearchHit,
+    public readonly collapsibleState: vscode.TreeItemCollapsibleState,
+    private readonly extensionUri: vscode.Uri
+  ) {
+    super(hit.title || hit.snippet?.slice(0, 60) || hit.id, collapsibleState);
+    this.tooltip = this.createTooltip();
+    this.description = `score: ${hit.score?.toFixed(2) ?? 'N/A'}`;
+    this.contextValue = 'searchHit';
+    
+    // Use custom search icon
+    const iconPath = vscode.Uri.joinPath(extensionUri, 'media', 'search-icon.svg');
+    this.iconPath = {
+      light: iconPath,
+      dark: iconPath
+    };
+    
+    // Click command
+    this.command = {
+      command: 'yuihub.openSearchResult',
+      title: 'Open Search Result',
+      arguments: [this.hit]
+    };
+  }
+
+  private createTooltip(): string {
+    const parts: string[] = [];
+    parts.push(`ID: ${this.hit.id}`);
+    if (this.hit.thread) parts.push(`Thread: ${this.hit.thread}`);
+    if (this.hit.path) parts.push(`Path: ${this.hit.path}`);
+    if (this.hit.date) parts.push(`Date: ${this.hit.date}`);
+    if (this.hit.score !== undefined) parts.push(`Score: ${this.hit.score.toFixed(3)}`);
+    if (this.hit.snippet) parts.push(`\n${this.hit.snippet}`);
+    return parts.join('\n');
+  }
+}
+
+class SearchResultsProvider implements vscode.TreeDataProvider<SearchResultItem> {
+  private _onDidChangeTreeData = new vscode.EventEmitter<SearchResultItem | undefined | null | void>();
+  readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
+
+  private searchResults: SearchHit[] = [];
+  private totalResults = 0;
+
+  constructor(private readonly extensionUri: vscode.Uri) {}
+
+  refresh(): void {
+    this._onDidChangeTreeData.fire();
+  }
+
+  setResults(hits: SearchHit[], total: number): void {
+    this.searchResults = hits;
+    this.totalResults = total;
+    this.refresh();
+  }
+
+  clearResults(): void {
+    this.searchResults = [];
+    this.totalResults = 0;
+    this.refresh();
+  }
+
+  getTreeItem(element: SearchResultItem): vscode.TreeItem {
+    return element;
+  }
+
+  getChildren(element?: SearchResultItem): Thenable<SearchResultItem[]> {
+    if (element) {
+      return Promise.resolve([]);
+    } else {
+      if (this.searchResults.length === 0) {
+        return Promise.resolve([]);
+      }
+      
+      const items = this.searchResults.map(hit => 
+        new SearchResultItem(hit, vscode.TreeItemCollapsibleState.None, this.extensionUri)
+      );
+      return Promise.resolve(items);
+    }
+  }
+
+  getResultsCount(): number {
+    return this.totalResults;
+  }
+}
+
 // Secret storage key
 const SECRET_API_KEY = 'yuihub.apiKey';
 let secretToken: string | undefined;
@@ -150,6 +238,15 @@ export function activate(context: vscode.ExtensionContext) {
   // Trust state diagnostics
   out.appendLine(`[Trust] workspace.isTrusted=${vscode.workspace.isTrusted}`);
 
+  // Initialize Search Results Tree View
+  const searchResultsProvider = new SearchResultsProvider(context.extensionUri);
+  const treeView = vscode.window.createTreeView('yuihub.results', {
+    treeDataProvider: searchResultsProvider,
+    showCollapseAll: false
+  });
+  context.subscriptions.push(treeView);
+  treeView.message = '検索結果はありません。"YuiHub: Search..." で検索を開始してください。';
+
   function requireTrusted(feature: string): boolean {
     if (vscode.workspace.isTrusted) return true;
     vscode.window.showWarningMessage(
@@ -245,7 +342,19 @@ export function activate(context: vscode.ExtensionContext) {
     try {
       const limit = cfg<number>('yuihub.searchLimit');
       const res = await get<SearchResponse>('/search', { q, limit });
-      if (!res.ok || !res.hits?.length) { vscode.window.showInformationMessage('No hits.'); return; }
+      
+      // Update tree view with results
+      if (!res.ok || !res.hits?.length) {
+        searchResultsProvider.clearResults();
+        treeView.message = `"${q}" の検索結果が見つかりませんでした。`;
+        vscode.window.showInformationMessage('検索結果がありません。');
+        return;
+      }
+
+      searchResultsProvider.setResults(res.hits, res.total);
+      treeView.message = `"${q}" の検索結果: ${res.total}件`;
+      
+      // Show quick pick as well
       const pick = await vscode.window.showQuickPick(res.hits.map(h => ({
         label: h.title || h.snippet?.slice(0,60) || h.id,
         description: `${h.thread || ''}  score:${h.score?.toFixed?.(2) ?? ''}`.trim(),
@@ -263,9 +372,31 @@ export function activate(context: vscode.ExtensionContext) {
         await vscode.window.showTextDocument(doc);
       }
     } catch (e: any) {
+      searchResultsProvider.clearResults();
+      treeView.message = '検索中にエラーが発生しました。';
       out.appendLine(`[Search] ERROR ${e?.message ?? e}`);
       await handleHttpError(e, 'Search');
     }
+  }));
+
+  // Open Search Result (from tree view click)
+  context.subscriptions.push(vscode.commands.registerCommand('yuihub.openSearchResult', async (hit: SearchHit) => {
+    const text = `// YuiHub Search Hit\n// id: ${hit.id}\n// thread: ${hit.thread ?? ''}\n// path: ${hit.path ?? ''}\n// date: ${hit.date ?? ''}\n// score: ${hit.score?.toFixed(3) ?? ''}\n// tags: ${hit.tags?.join(', ') ?? ''}\n// source: ${hit.source ?? ''}\n\n${hit.snippet ?? ''}`;
+    
+    const editor = vscode.window.activeTextEditor;
+    if (editor) {
+      await editor.edit(ed => ed.insert(editor.selection.active, text));
+    } else {
+      const doc = await vscode.workspace.openTextDocument({ language: 'markdown', content: text });
+      await vscode.window.showTextDocument(doc);
+    }
+  }));
+
+  // Clear Search Results
+  context.subscriptions.push(vscode.commands.registerCommand('yuihub.clearSearchResults', () => {
+    searchResultsProvider.clearResults();
+    treeView.message = '検索結果をクリアしました。';
+    out.appendLine('[SearchResults] Cleared');
   }));
 
   // Issue new thread
