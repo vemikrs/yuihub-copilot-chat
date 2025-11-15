@@ -16,6 +16,23 @@
       "args": ["run", "watch"],
       "isBackground": true,
       "problemMatcher": []
+    },
+    {
+      "type": "shell",
+      "label": "package to /packages",
+      "command": "npm",
+      "args": ["run", "package"],
+      "dependsOn": ["build and package"],
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "type": "shell",
+      "label": "publish",
+      "command": "npm",
+      "args": ["run", "publish"],
+      "dependsOn": ["npm: build", "npm: package to /packages"],
+      "problemMatcher": []
     }
   ]
 }
