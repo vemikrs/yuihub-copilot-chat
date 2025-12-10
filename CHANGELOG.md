@@ -13,3 +13,21 @@
 
 ## v0.0.5
 - CodeのVersionを `1.106.0` に更新
+
+## v0.0.6
+- 検索結果ビューの実装（検索タブの基礎機能追加）
+- 依存関係を最新に更新（esbuild、@vscode/vsce など）
+- activationEvents を削除
+- 検索結果ビューのアイコンを search-icon.svg に変更
+- ビューのタイトルメニューに「クリア」コマンドを追加
+
+## v0.0.7
+- Security Update
+
+## v0.0.8
+- CodeのVersionを `1.107.0` に更新
+- Security Update
+
+## v0.0.9
+- CodeのVersionを `1.108.0` に更新
+- Security Update
